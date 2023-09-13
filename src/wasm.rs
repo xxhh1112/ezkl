@@ -8,20 +8,19 @@ use crate::graph::modules::POSEIDON_LEN_GRAPH;
 use crate::graph::quantize_float;
 use crate::graph::scale_to_multiplier;
 use halo2_proofs::plonk::*;
-use halo2_proofs::poly::commitment::{CommitmentScheme, ParamsProver};
+use halo2_proofs::poly::commitment::ParamsProver;
 use halo2_proofs::poly::kzg::{
     commitment::ParamsKZG, strategy::SingleStrategy as KZGSingleStrategy,
 };
 use halo2curves::bn256::{Bn256, Fr, G1Affine};
-use halo2curves::ff::{FromUniformBytes, PrimeField};
+use halo2curves::ff::PrimeField;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use crate::tensor::TensorType;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_console_logger::DEFAULT_LOGGER;
-
 use console_error_panic_hook;
+use std::io::Write;
+use wasm_bindgen::prelude::*;
+// use wasm_bindgen_console_logger::DEFAULT_LOGGER;
 
 #[cfg(feature = "web")]
 pub use wasm_bindgen_rayon::init_thread_pool;
@@ -244,14 +243,24 @@ pub fn verify(
 ) -> Result<bool, JsError> {
     let mut reader = std::io::BufReader::new(&srs[..]);
     let params: ParamsKZG<Bn256> =
-        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader)
-            .map_err(|e| JsError::new(&format!("{}", e)))?;
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader).map_err(|e| {
+            log::error!("error loading srs: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
 
-    let circuit_settings: GraphSettings =
-        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    let circuit_settings: GraphSettings = serde_json::from_slice(&settings[..]).map_err(|e| {
+        log::error!("error loading settings: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
 
     let snark: crate::pfsys::Snark<Fr, G1Affine> =
-        serde_json::from_slice(&proof_js[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+        serde_json::from_slice(&proof_js[..]).map_err(|e| {
+            log::error!("error loading snark: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    log::error!("verify protocol: {:?}", snark.protocol);
+    log::error!("verify proof: {:?}", snark.proof);
 
     let mut reader = std::io::BufReader::new(&vk[..]);
     let vk = VerifyingKey::<G1Affine>::read::<_, GraphCircuit>(
@@ -259,7 +268,12 @@ pub fn verify(
         halo2_proofs::SerdeFormat::RawBytes,
         circuit_settings,
     )
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| {
+        log::error!("error laoding vk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("verify vk: {:?}", vk);
 
     let strategy = KZGSingleStrategy::new(params.verifier_params());
 
@@ -267,7 +281,10 @@ pub fn verify(
 
     match result {
         Ok(_) => Ok(true),
-        Err(e) => Err(JsError::new(&format!("{}", e))),
+        Err(e) => {
+            log::error!("e: {:?}", e);
+            Err(JsError::new(&format!("{}", e)))
+        }
     }
 }
 
@@ -280,24 +297,30 @@ pub fn prove(
     settings: wasm_bindgen::Clamped<Vec<u8>>,
     srs: wasm_bindgen::Clamped<Vec<u8>>,
 ) -> Result<Vec<u8>, JsError> {
-    log::set_logger(&DEFAULT_LOGGER).unwrap();
-    #[cfg(feature = "det-prove")]
-    log::set_max_level(log::LevelFilter::Debug);
-    #[cfg(not(feature = "det-prove"))]
-    log::set_max_level(log::LevelFilter::Info);
+    // log::set_logger(&DEFAULT_LOGGER).unwrap();
+    // #[cfg(feature = "det-prove")]
+    // log::set_max_level(log::LevelFilter::Debug);
+    // #[cfg(not(feature = "det-prove"))]
+    // log::set_max_level(log::LevelFilter::Info);
     // read in kzg params
     let mut reader = std::io::BufReader::new(&srs[..]);
     let params: ParamsKZG<Bn256> =
-        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader)
-            .map_err(|e| JsError::new(&format!("{}", e)))?;
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader).map_err(|e| {
+            log::error!("error reading params: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
 
     // read in model input
-    let data: crate::graph::GraphWitness =
-        serde_json::from_slice(&witness[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    let data: crate::graph::GraphWitness = serde_json::from_slice(&witness[..]).map_err(|e| {
+        log::error!("error reading witness: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
 
     // read in circuit params
-    let circuit_settings: GraphSettings =
-        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    let circuit_settings: GraphSettings = serde_json::from_slice(&settings[..]).map_err(|e| {
+        log::error!("error reading settings: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
 
     // read in proving key
     let mut reader = std::io::BufReader::new(&pk[..]);
@@ -306,22 +329,33 @@ pub fn prove(
         halo2_proofs::SerdeFormat::RawBytes,
         circuit_settings.clone(),
     )
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| {
+        log::error!("error reading pk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
 
     // read in circuit
     let compiled_model: crate::graph::Model =
-        bincode::deserialize(&compiled_model[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+        bincode::deserialize(&compiled_model[..]).map_err(|e| {
+            log::error!("error reading model: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
 
-    let mut circuit = GraphCircuit::new(compiled_model, &circuit_settings.run_args)
-        .map_err(|e| JsError::new(&format!("{}", e)))?;
+    let mut circuit =
+        GraphCircuit::new(compiled_model, &circuit_settings.run_args).map_err(|e| {
+            log::error!("error reading circuit: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
 
     // prep public inputs
-    circuit
-        .load_graph_witness(&data)
-        .map_err(|e| JsError::new(&format!("{}", e)))?;
-    let public_inputs = circuit
-        .prepare_public_inputs(&data)
-        .map_err(|e| JsError::new(&format!("{}", e)))?;
+    circuit.load_graph_witness(&data).map_err(|e| {
+        log::error!("error loading graph wintess: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+    let public_inputs = circuit.prepare_public_inputs(&data).map_err(|e| {
+        log::error!("error preparing pi: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
 
     let strategy = KZGSingleStrategy::new(&params);
     let proof = create_proof_circuit_kzg(
@@ -333,32 +367,466 @@ pub fn prove(
         strategy,
         crate::circuit::CheckMode::UNSAFE,
     )
-    .map_err(|e| JsError::new(&format!("{}", e)))?;
+    .map_err(|e| {
+        log::error!("error proving: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("prove protocol: {:?}", proof.protocol);
+    log::error!("prove proof: {:?}", proof.proof);
 
     Ok(serde_json::to_string(&proof)
-        .map_err(|e| JsError::new(&format!("{}", e)))?
+        .map_err(|e| {
+            log::error!("error serializing proof: {}", e);
+            JsError::new(&format!("{}", e))
+        })?
         .into_bytes())
 }
 
 // HELPER FUNCTIONS
 
 /// Creates a [VerifyingKey] and [ProvingKey] for a [GraphCircuit] (`circuit`) with specific [CommitmentScheme] parameters (`params`) for the WASM target
-#[cfg(target_arch = "wasm32")]
-pub fn create_keys_wasm<Scheme: CommitmentScheme, F: PrimeField + TensorType, C: Circuit<F>>(
-    circuit: &C,
-    params: &'_ Scheme::ParamsProver,
-) -> Result<ProvingKey<Scheme::Curve>, halo2_proofs::plonk::Error>
-where
-    C: Circuit<Scheme::Scalar>,
-    <Scheme as CommitmentScheme>::Scalar: FromUniformBytes<64>,
-{
+#[wasm_bindgen]
+pub fn create_keys_wasm(
+    compiled_model: wasm_bindgen::Clamped<Vec<u8>>,
+    settings: wasm_bindgen::Clamped<Vec<u8>>,
+    srs: wasm_bindgen::Clamped<Vec<u8>>,
+) -> Result<Vec<u8>, JsError> {
+    // log::set_logger(&DEFAULT_LOGGER).unwrap();
+    // #[cfg(feature = "det-prove")]
+    // log::set_max_level(log::LevelFilter::Debug);
+    // #[cfg(not(feature = "det-prove"))]
+    // log::set_max_level(log::LevelFilter::Info);
+    // read in circuit
+    let compiled_model: crate::graph::Model =
+        bincode::deserialize(&compiled_model[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
     //	Real proof
-    let empty_circuit = <C as Circuit<F>>::without_witnesses(circuit);
+    let circuit_settings: GraphSettings =
+        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let circuit = GraphCircuit::new(compiled_model, &circuit_settings.run_args)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let empty_circuit = GraphCircuit::without_witnesses(&circuit);
+
+    // read in kzg params
+    let mut reader = std::io::BufReader::new(&srs[..]);
+    let params: ParamsKZG<Bn256> =
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader).map_err(|e| {
+            log::error!("error loading srs: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
 
     // Initialize the proving key
-    let vk = keygen_vk(params, &empty_circuit)?;
-    let pk = keygen_pk(params, vk, &empty_circuit)?;
-    Ok(pk)
+    let vk = keygen_vk(&params, &empty_circuit).map_err(|e| {
+        log::error!("error generating vk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+    let pk = keygen_pk(&params, vk.clone(), &empty_circuit).map_err(|e| {
+        log::error!("error generating pk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("keys vk: {:?}", vk.clone());
+
+    // buffer
+    let f = vec![];
+    let mut writer = std::io::BufWriter::new(f.clone());
+    pk.write(&mut writer, halo2_proofs::SerdeFormat::RawBytes)
+        .expect("failed to write");
+    writer.flush().expect("failed to flush");
+
+    let mut reader = std::io::BufReader::new(&f[..]);
+    let _pk = ProvingKey::<G1Affine>::read::<_, GraphCircuit>(
+        &mut reader,
+        halo2_proofs::SerdeFormat::RawBytes,
+        circuit_settings.clone(),
+    )
+    .map_err(|e| {
+        log::error!("error reading pk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    Ok(f)
+}
+
+/// Creates a [VerifyingKey] and [ProvingKey] for a [GraphCircuit] (`circuit`) with specific [CommitmentScheme] parameters (`params`) for the WASM target
+#[wasm_bindgen]
+pub fn create_keys_and_prove(
+    compiled_model: wasm_bindgen::Clamped<Vec<u8>>,
+    settings: wasm_bindgen::Clamped<Vec<u8>>,
+    srs: wasm_bindgen::Clamped<Vec<u8>>,
+    witness: wasm_bindgen::Clamped<Vec<u8>>,
+) -> Result<Vec<u8>, JsError> {
+    // log::set_logger(&DEFAULT_LOGGER).unwrap();
+    // #[cfg(feature = "det-prove")]
+    // log::set_max_level(log::LevelFilter::Debug);
+    // #[cfg(not(feature = "det-prove"))]
+    // log::set_max_level(log::LevelFilter::Info);
+    // read in circuit
+    let compiled_model: crate::graph::Model =
+        bincode::deserialize(&compiled_model[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    //	Real proof
+    let circuit_settings: GraphSettings =
+        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let circuit = GraphCircuit::new(compiled_model.clone(), &circuit_settings.run_args)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let empty_circuit = GraphCircuit::without_witnesses(&circuit);
+
+    // read in model input
+    let data: crate::graph::GraphWitness = serde_json::from_slice(&witness[..]).map_err(|e| {
+        log::error!("error reading witness: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    // read in kzg params
+    let mut reader = std::io::BufReader::new(&srs[..]);
+    let params: ParamsKZG<Bn256> =
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader)
+            .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    // Initialize the proving key
+    let vk = keygen_vk(&params, &empty_circuit).map_err(|e| JsError::new(&format!("{}", e)))?;
+    log::error!("keys + prove vk: {:?}", vk.clone());
+    let pk = keygen_pk(&params, vk, &empty_circuit).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    // buffer
+    let f = vec![];
+    let mut writer = std::io::BufWriter::new(f.clone());
+    pk.write(&mut writer, halo2_proofs::SerdeFormat::RawBytes)
+        .expect("failed to write");
+    writer.flush().expect("failed to flush");
+
+    let mut circuit =
+        GraphCircuit::new(compiled_model, &circuit_settings.run_args).map_err(|e| {
+            log::error!("error reading circuit: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    // prep public inputs
+    circuit.load_graph_witness(&data).map_err(|e| {
+        log::error!("error loading graph wintess: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+    let public_inputs = circuit.prepare_public_inputs(&data).map_err(|e| {
+        log::error!("error preparing pi: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    let strategy = KZGSingleStrategy::new(&params);
+    let proof = create_proof_circuit_kzg(
+        circuit,
+        &params,
+        public_inputs,
+        &pk,
+        crate::pfsys::TranscriptType::Blake,
+        strategy,
+        crate::circuit::CheckMode::SAFE,
+    )
+    .map_err(|e| {
+        log::error!("error proving: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("keys + prove proof: {:?}", proof.proof);
+
+    Ok(serde_json::to_string(&proof)
+        .map_err(|e| JsError::new(&format!("{}", e)))?
+        .into_bytes())
+}
+
+/// Creates a [VerifyingKey] and [ProvingKey] for a [GraphCircuit] (`circuit`) with specific [CommitmentScheme] parameters (`params`) for the WASM target
+#[wasm_bindgen]
+pub fn create_keys_and_prove_and_verify(
+    compiled_model: wasm_bindgen::Clamped<Vec<u8>>,
+    settings: wasm_bindgen::Clamped<Vec<u8>>,
+    srs: wasm_bindgen::Clamped<Vec<u8>>,
+    witness: wasm_bindgen::Clamped<Vec<u8>>,
+) -> Result<bool, JsError> {
+    // log::set_logger(&DEFAULT_LOGGER).unwrap();
+    // #[cfg(feature = "det-prove")]
+    // log::set_max_level(log::LevelFilter::Debug);
+    // #[cfg(not(feature = "det-prove"))]
+    // log::set_max_level(log::LevelFilter::Info);
+    // read in circuit
+    let compiled_model: crate::graph::Model =
+        bincode::deserialize(&compiled_model[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    //	Real proof
+    let circuit_settings: GraphSettings =
+        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let circuit = GraphCircuit::new(compiled_model.clone(), &circuit_settings.run_args)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let empty_circuit = GraphCircuit::without_witnesses(&circuit);
+
+    // read in model input
+    let data: crate::graph::GraphWitness = serde_json::from_slice(&witness[..]).map_err(|e| {
+        log::error!("error reading witness: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    // read in kzg params
+    let mut reader = std::io::BufReader::new(&srs[..]);
+    let params: ParamsKZG<Bn256> =
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader)
+            .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    // Initialize the proving key
+    let vk = keygen_vk(&params, &empty_circuit).map_err(|e| JsError::new(&format!("{}", e)))?;
+    let pk = keygen_pk(&params, vk.clone(), &empty_circuit)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    // buffer
+    let f = vec![];
+    let mut writer = std::io::BufWriter::new(f.clone());
+    pk.write(&mut writer, halo2_proofs::SerdeFormat::RawBytes)
+        .expect("failed to write");
+    writer.flush().expect("failed to flush");
+
+    let mut circuit =
+        GraphCircuit::new(compiled_model, &circuit_settings.run_args).map_err(|e| {
+            log::error!("error reading circuit: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    // prep public inputs
+    circuit.load_graph_witness(&data).map_err(|e| {
+        log::error!("error loading graph wintess: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+    let public_inputs = circuit.prepare_public_inputs(&data).map_err(|e| {
+        log::error!("error preparing pi: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    let strategy = KZGSingleStrategy::new(&params);
+    let proof = create_proof_circuit_kzg(
+        circuit,
+        &params,
+        public_inputs,
+        &pk,
+        crate::pfsys::TranscriptType::Blake,
+        strategy,
+        crate::circuit::CheckMode::SAFE,
+    )
+    .map_err(|e| {
+        log::error!("error proving: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("keys + prove + verify proof: {:?}", proof.proof);
+    log::error!("keys + prove + verify vk: {:?}", vk);
+
+    let verifier_strategy = KZGSingleStrategy::new(params.verifier_params());
+
+    let _verify =
+        verify_proof_circuit_kzg(&params, proof, &vk, verifier_strategy).map_err(|e| {
+            log::error!("error verifying: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    Ok(true)
+}
+
+/// Creates a [VerifyingKey] and [ProvingKey] for a [GraphCircuit] (`circuit`) with specific [CommitmentScheme] parameters (`params`) for the WASM target
+#[wasm_bindgen]
+pub fn create_keys_and_prove_and_verify_external_vk(
+    compiled_model: wasm_bindgen::Clamped<Vec<u8>>,
+    settings: wasm_bindgen::Clamped<Vec<u8>>,
+    srs: wasm_bindgen::Clamped<Vec<u8>>,
+    witness: wasm_bindgen::Clamped<Vec<u8>>,
+    vk: wasm_bindgen::Clamped<Vec<u8>>,
+) -> Result<bool, JsError> {
+    // log::set_logger(&DEFAULT_LOGGER).unwrap();
+    // #[cfg(feature = "det-prove")]
+    // log::set_max_level(log::LevelFilter::Debug);
+    // #[cfg(not(feature = "det-prove"))]
+    // log::set_max_level(log::LevelFilter::Info);
+    // read in circuit
+    let compiled_model: crate::graph::Model =
+        bincode::deserialize(&compiled_model[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    //	Real proof
+    let circuit_settings: GraphSettings =
+        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let circuit = GraphCircuit::new(compiled_model.clone(), &circuit_settings.run_args)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let empty_circuit = GraphCircuit::without_witnesses(&circuit);
+
+    // read in model input
+    let data: crate::graph::GraphWitness = serde_json::from_slice(&witness[..]).map_err(|e| {
+        log::error!("error reading witness: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    // read in kzg params
+    let mut reader = std::io::BufReader::new(&srs[..]);
+    let params: ParamsKZG<Bn256> =
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader)
+            .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let mut reader = std::io::BufReader::new(&vk[..]);
+    let vk = VerifyingKey::<G1Affine>::read::<_, GraphCircuit>(
+        &mut reader,
+        halo2_proofs::SerdeFormat::RawBytes,
+        circuit_settings.clone(),
+    )
+    .map_err(|e| {
+        log::error!("error reading vk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    // Initialize the proving key
+    let pk = keygen_pk(&params, vk.clone(), &empty_circuit)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let mut circuit =
+        GraphCircuit::new(compiled_model, &circuit_settings.run_args).map_err(|e| {
+            log::error!("error reading circuit: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    // prep public inputs
+    circuit.load_graph_witness(&data).map_err(|e| {
+        log::error!("error loading graph wintess: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+    let public_inputs = circuit.prepare_public_inputs(&data).map_err(|e| {
+        log::error!("error preparing pi: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    let strategy = KZGSingleStrategy::new(&params);
+    let proof = create_proof_circuit_kzg(
+        circuit,
+        &params,
+        public_inputs,
+        &pk,
+        crate::pfsys::TranscriptType::Blake,
+        strategy,
+        crate::circuit::CheckMode::SAFE,
+    )
+    .map_err(|e| {
+        log::error!("error proving: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("keys + prove + verify proof: {:?}", proof.proof);
+    log::error!("keys + prove + verify vk: {:?}", vk);
+
+    let verifier_strategy = KZGSingleStrategy::new(params.verifier_params());
+
+    let _verify =
+        verify_proof_circuit_kzg(&params, proof, &vk, verifier_strategy).map_err(|e| {
+            log::error!("error verifying: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    Ok(true)
+}
+
+/// Creates a [VerifyingKey] and [ProvingKey] for a [GraphCircuit] (`circuit`) with specific [CommitmentScheme] parameters (`params`) for the WASM target
+#[wasm_bindgen]
+pub fn create_keys_and_prove_and_verify_external_vk_internal_pk(
+    compiled_model: wasm_bindgen::Clamped<Vec<u8>>,
+    settings: wasm_bindgen::Clamped<Vec<u8>>,
+    srs: wasm_bindgen::Clamped<Vec<u8>>,
+    witness: wasm_bindgen::Clamped<Vec<u8>>,
+    vk: wasm_bindgen::Clamped<Vec<u8>>,
+) -> Result<bool, JsError> {
+    // log::set_logger(&DEFAULT_LOGGER).unwrap();
+    // #[cfg(feature = "det-prove")]
+    // log::set_max_level(log::LevelFilter::Debug);
+    // #[cfg(not(feature = "det-prove"))]
+    // log::set_max_level(log::LevelFilter::Info);
+    // read in circuit
+    let compiled_model: crate::graph::Model =
+        bincode::deserialize(&compiled_model[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+    //	Real proof
+    let circuit_settings: GraphSettings =
+        serde_json::from_slice(&settings[..]).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let circuit = GraphCircuit::new(compiled_model.clone(), &circuit_settings.run_args)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let empty_circuit = GraphCircuit::without_witnesses(&circuit);
+
+    // read in model input
+    let data: crate::graph::GraphWitness = serde_json::from_slice(&witness[..]).map_err(|e| {
+        log::error!("error reading witness: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    // read in kzg params
+    let mut reader = std::io::BufReader::new(&srs[..]);
+    let params: ParamsKZG<Bn256> =
+        halo2_proofs::poly::commitment::Params::<'_, G1Affine>::read(&mut reader)
+            .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let vk_int = keygen_vk(&params, &empty_circuit).map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    // Initialize the proving key
+    let pk = keygen_pk(&params, vk_int.clone(), &empty_circuit)
+        .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let mut circuit =
+        GraphCircuit::new(compiled_model, &circuit_settings.run_args).map_err(|e| {
+            log::error!("error reading circuit: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    // prep public inputs
+    circuit.load_graph_witness(&data).map_err(|e| {
+        log::error!("error loading graph wintess: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+    let public_inputs = circuit.prepare_public_inputs(&data).map_err(|e| {
+        log::error!("error preparing pi: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    let strategy = KZGSingleStrategy::new(&params);
+    let proof = create_proof_circuit_kzg(
+        circuit,
+        &params,
+        public_inputs,
+        &pk,
+        crate::pfsys::TranscriptType::Blake,
+        strategy,
+        crate::circuit::CheckMode::SAFE,
+    )
+    .map_err(|e| {
+        log::error!("error proving: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    log::error!("keys + prove + verify proof: {:?}", proof.proof);
+    log::error!("keys + prove + verify vk: {:?}", vk_int);
+
+    let verifier_strategy = KZGSingleStrategy::new(params.verifier_params());
+
+    let mut reader = std::io::BufReader::new(&vk[..]);
+    let vk = VerifyingKey::<G1Affine>::read::<_, GraphCircuit>(
+        &mut reader,
+        halo2_proofs::SerdeFormat::RawBytes,
+        circuit_settings.clone(),
+    )
+    .map_err(|e| {
+        log::error!("error reading vk: {}", e);
+        JsError::new(&format!("{}", e))
+    })?;
+
+    let _verify =
+        verify_proof_circuit_kzg(&params, proof, &vk, verifier_strategy).map_err(|e| {
+            log::error!("error verifying: {}", e);
+            JsError::new(&format!("{}", e))
+        })?;
+
+    Ok(true)
 }
 
 ///

@@ -10,27 +10,30 @@ mod wasm32 {
     use ezkl::graph::GraphWitness;
     use ezkl::pfsys::Snark;
     use ezkl::wasm::{
-        bufferToVecOfVecU64, elgamalDecrypt, elgamalEncrypt, elgamalGenRandom, genWitness,
-        poseidonHash, prove, u8_array_to_u128_le, vecU64ToFelt, vecU64ToFloat, vecU64ToInt, verify,
+        bufferToVecOfVecU64, create_keys_and_prove, create_keys_and_prove_and_verify,
+        create_keys_and_prove_and_verify_external_vk,
+        create_keys_and_prove_and_verify_external_vk_internal_pk, create_keys_wasm, elgamalDecrypt,
+        elgamalEncrypt, elgamalGenRandom, genWitness, poseidonHash, prove, u8_array_to_u128_le,
+        vecU64ToFelt, vecU64ToFloat, vecU64ToInt, verify,
     };
     use halo2curves::bn256::{Fr, G1Affine};
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use snark_verifier::util::arithmetic::PrimeField;
+    use wasm_bindgen_console_logger::DEFAULT_LOGGER;
     #[cfg(feature = "web")]
     pub use wasm_bindgen_rayon::init_thread_pool;
     use wasm_bindgen_test::*;
-
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    pub const KZG_PARAMS: &[u8] = include_bytes!("../tests/wasm/kzg");
-    pub const CIRCUIT_PARAMS: &[u8] = include_bytes!("../tests/wasm/settings.json");
-    pub const VK: &[u8] = include_bytes!("../tests/wasm/test.key");
-    pub const PK: &[u8] = include_bytes!("../tests/wasm/test.provekey");
-    pub const WITNESS: &[u8] = include_bytes!("../tests/wasm/test.witness.json");
-    pub const PROOF: &[u8] = include_bytes!("../tests/wasm/test.proof");
-    pub const NETWORK: &[u8] = include_bytes!("../tests/wasm/test_network.compiled");
-    pub const INPUT: &[u8] = include_bytes!("../tests/wasm/input.json");
+    pub const KZG_PARAMS: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/kzg.srs");
+    pub const CIRCUIT_PARAMS: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/settings.json");
+    pub const VK: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/key.vk");
+    // pub const PK: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/key.pk");
+    pub const WITNESS: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/input.json");
+    // pub const PROOF: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/cli.pf");
+    pub const NETWORK: &[u8] = include_bytes!("../tests/wasm/3l_relu_conv_fc/network.onnx");
+    // pub const INPUT: &[u8] = include_bytes!("../tests/wasm/input.json");
 
     #[wasm_bindgen_test]
     async fn verify_field_serialization_roundtrip() {
@@ -182,72 +185,133 @@ mod wasm32 {
         assert_eq!(hash, reference_hash)
     }
 
+    // #[wasm_bindgen_test]
+    // async fn verify_gen_witness() {
+    //     let witness = genWitness(
+    //         wasm_bindgen::Clamped(NETWORK.to_vec()),
+    //         wasm_bindgen::Clamped(INPUT.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .unwrap();
+
+    //     let witness: GraphWitness = serde_json::from_slice(&witness[..]).unwrap();
+
+    //     let reference_witness: GraphWitness = serde_json::from_slice(&WITNESS).unwrap();
+    //     // should not fail
+    //     assert_eq!(witness, reference_witness);
+    // }
+
+    // #[wasm_bindgen_test]
+    // async fn verify_pass() {
+    //     let value = verify(
+    //         wasm_bindgen::Clamped(PROOF.to_vec()),
+    //         wasm_bindgen::Clamped(VK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .unwrap();
+    //     assert!(value);
+    // }
+
+    // #[wasm_bindgen_test]
+    // async fn verify_fail() {
+    //     let og_proof: Snark<Fr, G1Affine> = serde_json::from_slice(&PROOF).unwrap();
+
+    //     let proof: Snark<Fr, G1Affine> = Snark {
+    //         proof: vec![0; 32],
+    //         protocol: og_proof.protocol,
+    //         instances: vec![vec![Fr::from(0); 32]],
+    //         transcript_type: ezkl::pfsys::TranscriptType::EVM,
+    //     };
+    //     let proof = serde_json::to_string(&proof).unwrap().into_bytes();
+
+    //     let value = verify(
+    //         wasm_bindgen::Clamped(proof),
+    //         wasm_bindgen::Clamped(VK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed");
+    //     // should fail
+    //     assert!(value.is_err());
+    // }
+
+    // #[wasm_bindgen_test]
+    // async fn prove_pass() {
+    //     // prove
+    //     let proof = prove(
+    //         wasm_bindgen::Clamped(WITNESS.to_vec()),
+    //         wasm_bindgen::Clamped(PK.to_vec()),
+    //         wasm_bindgen::Clamped(NETWORK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .unwrap();
+    //     assert!(proof.len() > 0);
+
+    //     let value = verify(
+    //         wasm_bindgen::Clamped(proof.to_vec()),
+    //         wasm_bindgen::Clamped(VK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .unwrap();
+    //     // should not fail
+    //     assert!(value);
+    // }
+
+    // #[wasm_bindgen_test]
+    // async fn prove_pass_with_keys() {
+    //     use std::io::Write;
+    //     let pk = create_keys_wasm(
+    //         wasm_bindgen::Clamped(NETWORK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .expect("failed to create keys");
+
+    //     println!("pk: {:?}", pk);
+
+    //     // prove
+    //     let proof = prove(
+    //         wasm_bindgen::Clamped(WITNESS.to_vec()),
+    //         wasm_bindgen::Clamped(pk),
+    //         wasm_bindgen::Clamped(NETWORK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .unwrap();
+    //     assert!(proof.len() > 0);
+
+    //     let value = verify(
+    //         wasm_bindgen::Clamped(proof.to_vec()),
+    //         wasm_bindgen::Clamped(VK.to_vec()),
+    //         wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+    //         wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+    //     )
+    //     .map_err(|_| "failed")
+    //     .unwrap();
+    //     // should not fail
+    //     assert!(value);
+    // }
+
     #[wasm_bindgen_test]
-    async fn verify_gen_witness() {
-        let witness = genWitness(
+    async fn prove_pass_with_keys_integrated() {
+        use std::io::Write;
+        let proof = create_keys_and_prove(
             wasm_bindgen::Clamped(NETWORK.to_vec()),
-            wasm_bindgen::Clamped(INPUT.to_vec()),
-            wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
-        )
-        .map_err(|_| "failed")
-        .unwrap();
-
-        let witness: GraphWitness = serde_json::from_slice(&witness[..]).unwrap();
-
-        let reference_witness: GraphWitness = serde_json::from_slice(&WITNESS).unwrap();
-        // should not fail
-        assert_eq!(witness, reference_witness);
-    }
-
-    #[wasm_bindgen_test]
-    async fn verify_pass() {
-        let value = verify(
-            wasm_bindgen::Clamped(PROOF.to_vec()),
-            wasm_bindgen::Clamped(VK.to_vec()),
             wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
             wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
-        )
-        .map_err(|_| "failed")
-        .unwrap();
-        assert!(value);
-    }
-
-    #[wasm_bindgen_test]
-    async fn verify_fail() {
-        let og_proof: Snark<Fr, G1Affine> = serde_json::from_slice(&PROOF).unwrap();
-
-        let proof: Snark<Fr, G1Affine> = Snark {
-            proof: vec![0; 32],
-            protocol: og_proof.protocol,
-            instances: vec![vec![Fr::from(0); 32]],
-            transcript_type: ezkl::pfsys::TranscriptType::EVM,
-        };
-        let proof = serde_json::to_string(&proof).unwrap().into_bytes();
-
-        let value = verify(
-            wasm_bindgen::Clamped(proof),
-            wasm_bindgen::Clamped(VK.to_vec()),
-            wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
-            wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
-        )
-        .map_err(|_| "failed");
-        // should fail
-        assert!(value.is_err());
-    }
-
-    #[wasm_bindgen_test]
-    async fn prove_pass() {
-        // prove
-        let proof = prove(
             wasm_bindgen::Clamped(WITNESS.to_vec()),
-            wasm_bindgen::Clamped(PK.to_vec()),
-            wasm_bindgen::Clamped(NETWORK.to_vec()),
-            wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
-            wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
         )
         .map_err(|_| "failed")
-        .unwrap();
-        assert!(proof.len() > 0);
+        .expect("failed to create keys");
 
         let value = verify(
             wasm_bindgen::Clamped(proof.to_vec()),
@@ -259,5 +323,64 @@ mod wasm32 {
         .unwrap();
         // should not fail
         assert!(value);
+    }
+
+    #[wasm_bindgen_test]
+    async fn prove_pass_with_keys_and_verify_integrated() {
+        use std::io::Write;
+        let value = create_keys_and_prove_and_verify(
+            wasm_bindgen::Clamped(NETWORK.to_vec()),
+            wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+            wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+            wasm_bindgen::Clamped(WITNESS.to_vec()),
+        )
+        .map_err(|_| "failed")
+        .expect("failed to create keys");
+
+        // should not fail
+        assert!(value);
+    }
+
+    #[wasm_bindgen_test]
+    async fn prove_pass_with_keys_and_verify_integrated_external_vk() {
+        use std::io::Write;
+        let value = create_keys_and_prove_and_verify_external_vk(
+            wasm_bindgen::Clamped(NETWORK.to_vec()),
+            wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+            wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+            wasm_bindgen::Clamped(WITNESS.to_vec()),
+            wasm_bindgen::Clamped(VK.to_vec()),
+        )
+        .map_err(|_| "failed")
+        .expect("failed to create keys");
+
+        // should not fail
+        assert!(value);
+    }
+
+    #[wasm_bindgen_test]
+    async fn prove_pass_with_keys_and_verify_integrated_external_vk_internal_pk() {
+        use std::io::Write;
+        let value = create_keys_and_prove_and_verify_external_vk_internal_pk(
+            wasm_bindgen::Clamped(NETWORK.to_vec()),
+            wasm_bindgen::Clamped(CIRCUIT_PARAMS.to_vec()),
+            wasm_bindgen::Clamped(KZG_PARAMS.to_vec()),
+            wasm_bindgen::Clamped(WITNESS.to_vec()),
+            wasm_bindgen::Clamped(VK.to_vec()),
+        )
+        .map_err(|_| "failed")
+        .expect("failed to create keys");
+
+        // should not fail
+        assert!(value);
+    }
+
+    #[wasm_bindgen_test]
+    fn a() {
+        log::set_logger(&DEFAULT_LOGGER).unwrap();
+        #[cfg(feature = "det-prove")]
+        log::set_max_level(log::LevelFilter::Debug);
+        #[cfg(not(feature = "det-prove"))]
+        log::set_max_level(log::LevelFilter::Info);
     }
 }

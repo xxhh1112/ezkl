@@ -235,6 +235,8 @@ where
     let elapsed = now.elapsed();
     info!("VK took {}.{}", elapsed.as_secs(), elapsed.subsec_millis());
 
+    println!("vk: {:?}", vk);
+
     // Initialize the proving key
     let now = Instant::now();
     let pk = keygen_pk(params, vk, &empty_circuit)?;
