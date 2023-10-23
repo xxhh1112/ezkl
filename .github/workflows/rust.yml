@@ -168,6 +168,8 @@ jobs:
         with:
           crate: cargo-nextest
           locked: true
+      - name: The Worm Mock
+        run: cargo nextest run --release --verbose tests::large_mock_::large_tests_5_expects -- --include-ignored
       - name: kzg inputs
         run: cargo nextest run --release --verbose tests::mock_kzg_input_::t  --test-threads 32
       - name: kzg params
