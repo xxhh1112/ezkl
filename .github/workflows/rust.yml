@@ -158,9 +158,6 @@ jobs:
     runs-on: self-hosted
     # needs: [build,  library-tests, docs]
     steps:
-      # annoying but see https://github.com/actions/checkout/issues/270
-      - name: Install GIT-LFS
-        run: apt-get install git-lfs
       - uses: actions/checkout@v4
         with:
           lfs: "true"
